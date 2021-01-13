@@ -5,7 +5,7 @@
 Example script for syncing NOAA weather data
 """
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'
 
 required = [
     'pandas',
@@ -241,7 +241,8 @@ def fetch_station_data(stationID : str, info : dict, pipe : 'meerschaum.Pipe'):
     """
     Fetch JSON for a given stationID from NOAA and parse into a dataframe
     """
-    from meerschaum.utils.misc import parse_df_datetimes, import_pandas
+    from meerschaum.utils.packages import import_pandas
+    from meerschaum.utils.misc import parse_df_datetimes
     from meerschaum.utils.warnings import warn
     import json, pytz, datetime, requests
     pd = import_pandas()
