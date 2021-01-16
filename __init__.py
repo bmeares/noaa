@@ -5,10 +5,12 @@
 Example script for syncing NOAA weather data
 """
 
-__version__ = '1.0.2'
+__version__ = '1.0.3'
 
 required = [
     'pandas',
+    'requests',
+    'prompt-toolkit',
     'requests',
 ]
 
