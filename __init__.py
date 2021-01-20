@@ -5,7 +5,7 @@
 Example script for syncing NOAA weather data
 """
 
-__version__ = '1.0.3'
+__version__ = '1.0.4'
 
 required = [
     'pandas',
@@ -36,11 +36,11 @@ def get_stations(
     instructions = f"""
     Visit https://www.weather.gov and use the local forecast search tool
     on the top left to find specific station IDs (e.g. 'KATL' for Atanta).
-    
+
     To fetch all stations from a state, enter the state abbreviation
     (e.g. 'GA' for Georgia).
 
-    NOTE: This will be slow! In the future, run with --async to sync more quickly. 
+    NOTE: This will be slow! In the future, run with --async to sync more quickly.
     """
     info(instructions)
 
@@ -69,7 +69,7 @@ def get_stations(
         except:
             warn(f"Unable to fetch name for station '{stationID}'. Skipping...", stack=False)
             continue
-        
+
         if not yes_no(f"Is '{name}' a good label for station '{stationID}'?"):
             name = prompt(f"New label for station '{stationID}': ")
 
@@ -314,4 +314,3 @@ def fetch_station_data(stationID : str, info : dict, pipe : 'meerschaum.Pipe'):
 
     ### Create a pandas DataFrame from the dictionary and parse for datetimes.
     return parse_df_datetimes(pd.DataFrame(d))
-
