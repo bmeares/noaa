@@ -30,7 +30,7 @@ def get_stations(
     from prompt_toolkit import prompt
     import requests, json, re
     from meerschaum.utils.warnings import warn, info
-    from meerschaum.utils.misc import yes_no
+    from meerschaum.utils.prompt import yes_no
     from meerschaum.utils.formatting import pprint
 
     instructions = f"""
