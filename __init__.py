@@ -5,6 +5,9 @@
 Example script for syncing NOAA weather data
 """
 
+from __future__ import annotations
+from typing import Optional
+
 __version__ = '1.0.4'
 
 required = [
@@ -151,12 +154,14 @@ def sync(
     pool = get_pool('ThreadPool', workers=workers)
     args = [(stationID, info, pipe) for stationID, info in stations.items()]
     dataframes = dict(pool.starmap(do_fetch, args))
+    print(dataframes)
     pool.close(); pool.join()
 
     ### only keep the common columns (skipping empty dataframes)
     common_cols = None
     for stationID, df in dataframes.items():
         if df is None: continue
+        #  print(df)
         if len(df.columns) == 0: continue
         #  df.rename(columns=(lambda x : x.lstrip().rstrip()), inplace=True)
         if common_cols is None:
@@ -219,14 +224,14 @@ def sync(
     succeeded, failed = 0, 0
     for stationID, success in success_dict.items():
         if not success:
-            print(f"Failed to sync from station '{stationID}' ({stations[stationID]['name']})")
+            warn(f"Failed to sync from station '{stationID}' ({stations[stationID]['name']})", stack=False)
             failed += 1
         else:
             succeeded += 1
 
     return (succeeded > 0), f"Synced from {succeeded + failed} stations, {failed} failed."
 
-def do_fetch(stationID : str, info : dict, pipe : 'meerschaum.Pipe'):
+def do_fetch(stationID : str, info : dict, pipe : 'meerschaum.Pipe') -> Optional[pandas.DataFrame]:
     """
     Wrapper for fetch_station_data (below)
     """
@@ -238,9 +243,13 @@ def do_fetch(stationID : str, info : dict, pipe : 'meerschaum.Pipe'):
         warn(f"Failed to sync station '{stationID}' ({info['name']}). Error:\n{msg}")
         df = None
 
-    return stationID, df
+    return df
 
-def fetch_station_data(stationID : str, info : dict, pipe : 'meerschaum.Pipe'):
+def fetch_station_data(
+        stationID : str,
+        info : dict,
+        pipe : meerschaum.Pipe
+    ) -> Optional[pandas.DataFrame]:
     """
     Fetch JSON for a given stationID from NOAA and parse into a dataframe
     """
@@ -265,11 +274,15 @@ def fetch_station_data(stationID : str, info : dict, pipe : 'meerschaum.Pipe'):
     if start: print(f"Fetching data newer than {start} for station '{stationID}' ({info['name']})...", flush=True)
     else: print(f"Fetching all possible data for station '{stationID}' ({info['name']})...", flush=True)
     url = f"https://api.weather.gov/stations/{stationID}/observations/"
+    response = None
     try:
-        data = json.loads(requests.get(url, params={"start":start}).text)
+        response = requests.get(url, params={"start":start})
+        data = json.loads(response.text)
     except Exception as e:
-        print(f"\nError: {e}", flush=True)
-        return stationID, None
+        print(f"\nFailed to parse JSON with exception: {e}", flush=True)
+        if response is not None:
+            print("Received text:\n" + response.text)
+        return None
     print(f"Done fetching data for station '{stationID}' ({info['name']}).", flush=True)
 
     ### build a dictionary from the JSON response (flattens JSON)
