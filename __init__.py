@@ -8,7 +8,7 @@ Example script for syncing NOAA weather data
 from __future__ import annotations
 from typing import Optional
 
-__version__ = '1.0.4'
+__version__ = '1.0.5'
 
 required = [
     'pandas',
