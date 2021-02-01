@@ -153,8 +153,9 @@ def sync(
     ### Fetch data from the stations.
     pool = get_pool('ThreadPool', workers=workers)
     args = [(stationID, info, pipe) for stationID, info in stations.items()]
+    #  _results = pool.starmap(do_fetch, args)
+    #  print(_results)
     dataframes = dict(pool.starmap(do_fetch, args))
-    print(dataframes)
     pool.close(); pool.join()
 
     ### only keep the common columns (skipping empty dataframes)
@@ -231,7 +232,7 @@ def sync(
 
     return (succeeded > 0), f"Synced from {succeeded + failed} stations, {failed} failed."
 
-def do_fetch(stationID : str, info : dict, pipe : 'meerschaum.Pipe') -> Optional[pandas.DataFrame]:
+def do_fetch(stationID : str, info : dict, pipe : 'meerschaum.Pipe') -> Tuple[str, Optional[pandas.DataFrame]]:
     """
     Wrapper for fetch_station_data (below)
     """
@@ -243,7 +244,7 @@ def do_fetch(stationID : str, info : dict, pipe : 'meerschaum.Pipe') -> Optional
         warn(f"Failed to sync station '{stationID}' ({info['name']}). Error:\n{msg}")
         df = None
 
-    return df
+    return stationID, df
 
 def fetch_station_data(
         stationID : str,
@@ -288,7 +289,7 @@ def fetch_station_data(
     ### build a dictionary from the JSON response (flattens JSON)
     d = dict()
     if 'features' not in data:
-        warn(f"Failed to fetch data for station '{stationID}' ({info['name']}):\n" + str(data))
+        warn(f"Failed to fetch data for station '{stationID}' ({info['name']}):\n" + str(data), stack=False)
         return None
     for record in data['features']:
         properties = record['properties']
