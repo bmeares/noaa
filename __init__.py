@@ -8,7 +8,7 @@ Example script for syncing NOAA weather data
 from __future__ import annotations
 from typing import Optional
 
-__version__ = '1.0.6'
+__version__ = '1.0.7'
 
 required = [
     'pandas',
@@ -240,6 +240,8 @@ def do_fetch(stationID : str, info : dict, pipe : 'meerschaum.Pipe') -> Tuple[st
     try:
         df = fetch_station_data(stationID, info, pipe)
     except Exception as e:
+        #  import traceback
+        #  traceback.print_stack()
         msg = str(e)
         warn(f"Failed to sync station '{stationID}' ({info['name']}). Error:\n{msg}")
         df = None
@@ -326,5 +328,21 @@ def fetch_station_data(
             if col not in d: d[col] = []
             d[col].append(val)
 
+    ### Normalize the lengths.
+    klens, lens = dict(), dict()
+    for k, v in d.items():
+        klens[k] = len(v)
+    for k, l in klens.items():
+        if l not in lens:
+            lens[l] = 0
+        lens[l] += 1
+    max_l, max_c = 0, 0
+    for l, c in lens.items():
+        if c > max_c:
+            max_c = c
+            max_l = l
+    norm_keys = [k for k, l in klens.items() if l == max_l]
+    norm_d = {k: d[k] for k in norm_keys}
+
     ### Create a pandas DataFrame from the dictionary and parse for datetimes.
-    return parse_df_datetimes(pd.DataFrame(d))
+    return parse_df_datetimes(pd.DataFrame(norm_d))
