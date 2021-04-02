@@ -8,12 +8,9 @@ Example script for syncing NOAA weather data
 from __future__ import annotations
 from typing import Optional
 
-__version__ = '1.0.7'
+__version__ = '1.1.1'
 
 required = [
-    'pandas',
-    'requests',
-    'prompt-toolkit',
     'requests',
 ]
 
@@ -28,12 +25,13 @@ def get_stations(
     if pipe.parameters['noaa']['stations'] is None:
         pipe.parameters['noaa']['stations'] = dict()
 
-    if len(pipe.parameters['noaa']['stations']) > 0: return pipe.parameters['noaa']['stations']
+    ### Return if we've already fetched stations.
+    if len(pipe.parameters['noaa']['stations']) > 0:
+        return pipe.parameters['noaa']['stations']
 
-    from prompt_toolkit import prompt
     import requests, json, re
     from meerschaum.utils.warnings import warn, info
-    from meerschaum.utils.prompt import yes_no
+    from meerschaum.utils.prompt import yes_no, prompt
     from meerschaum.utils.formatting import pprint
 
     instructions = f"""
@@ -50,7 +48,7 @@ def get_stations(
     stations = dict()
 
     while True:
-        stationID = prompt("Enter station ID or state abbreviation, empty to stop: ")
+        stationID = prompt("Enter station ID or state abbreviation, empty to stop: ", icon=False)
         if stationID == '': break
         if len(stationID) == 2:
             state_abbrev = stationID
@@ -74,7 +72,7 @@ def get_stations(
             continue
 
         if not yes_no(f"Is '{name}' a good label for station '{stationID}'?"):
-            name = prompt(f"New label for station '{stationID}': ")
+            name = prompt(f"New label for station '{stationID}': ", icon=False)
 
         stations[stationID] = dict()
         stations[stationID]['name'] = name
@@ -240,8 +238,6 @@ def do_fetch(stationID : str, info : dict, pipe : 'meerschaum.Pipe') -> Tuple[st
     try:
         df = fetch_station_data(stationID, info, pipe)
     except Exception as e:
-        #  import traceback
-        #  traceback.print_stack()
         msg = str(e)
         warn(f"Failed to sync station '{stationID}' ({info['name']}). Error:\n{msg}")
         df = None
