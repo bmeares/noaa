@@ -224,15 +224,10 @@ def sync(
     success_dict = dict()
     for stationID, df in dataframes.items():
         info(f"Syncing data from station '{stationID}' ({stations[stationID]['name']})...")
-        success = pipe.sync(
-            df,
-            blocking = blocking,
-            workers = workers,
-            check_existing = True,
-            force = True,
-            debug = debug,
-            **kw
-        )[0] if df is not None else False
+        kw.update({
+            'blocking' : blocking, 'workers' : workers, 'debug' : debug,
+        })
+        success = pipe.sync(df, **kw)[0] if df is not None else False
         success_dict[stationID] = success
 
     succeeded, failed = 0, 0
