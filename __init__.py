@@ -8,7 +8,7 @@ Example script for syncing NOAA weather data
 from __future__ import annotations
 from meerschaum.utils.typing import SuccessTuple, Dict, List, Any, Optional
 
-__version__ = '1.2.1'
+__version__ = '1.2.2'
 
 required = [
     'requests',
