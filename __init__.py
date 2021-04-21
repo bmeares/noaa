@@ -6,9 +6,9 @@ Example script for syncing NOAA weather data
 """
 
 from __future__ import annotations
-from typing import Optional
+from meerschaum.utils.typing import SuccessTuple, Dict, List, Any, Optional
 
-__version__ = '1.1.1'
+__version__ = '1.2.1'
 
 required = [
     'requests',
@@ -123,16 +123,16 @@ def sync(
         pipe : 'meerschaum.Pipe',
         debug : bool = False,
         blocking : bool = True,
-        workers : int = None,
+        workers : Optional[int] = None,
         **kw
-    ) -> tuple:
+    ) -> SuccessTuple:
     """
     Fetch JSON data from NOAA and sync it into a Pipe.
     Overrides the default Meerschaum sync function.
     """
+    from multiprocessing.pool import ThreadPool
     from meerschaum.utils.debug import dprint
     from meerschaum.utils.warnings import warn, info
-    from meerschaum.utils.pool import get_pool
 
     ### Specify the columns in case Pipe is not registered.
     ### NOTE: Normally the Pipe's columns' types are determined by the first dataframe encountered.
@@ -146,15 +146,23 @@ def sync(
 
     ### dictionary of NOAA weather stations and names
     stations = get_stations(pipe, debug=debug)
-    if workers is None: workers = int(len(stations) / 2) + 1
+    if workers is None:
+        workers = int(len(stations) / 2) + 1
 
     ### Fetch data from the stations.
-    pool = get_pool('ThreadPool', workers=workers)
+    try:
+        pool = ThreadPool(workers)
+    except Exception as e:
+        print(e)
+        pool = None
     args = [(stationID, info, pipe) for stationID, info in stations.items()]
-    #  _results = pool.starmap(do_fetch, args)
-    #  print(_results)
-    dataframes = dict(pool.starmap(do_fetch, args))
-    pool.close(); pool.join()
+    dataframes = (
+        dict(pool.starmap(do_fetch, args)) if pool is not None
+        else dict([do_fetch(*a) for a in args])
+    )
+    if pool is not None:
+        pool.close()
+        pool.join()
 
     ### only keep the common columns (skipping empty dataframes)
     common_cols = None
@@ -185,12 +193,18 @@ def sync(
         if df is not None:
             try:
                 ### Only keep commons columns and ensure they are sorted.
-                if debug: dprint(f"Common columns: {common_cols}")
+                if debug:
+                    dprint(f"Common columns: {common_cols}")
                 df = df[common_cols]
                 df[float_cols] = df[float_cols].astype('float')
             except Exception as e:
-                if debug: warn(str(e))
-                warn(f"Unable to parse data from station '{stationID}' ({stations[stationID]['name']})", stack=False)
+                if debug:
+                    warn(str(e))
+                warn(
+                    f"Unable to parse data from station '{stationID}' " +
+                    f"({stations[stationID]['name']})",
+                    stack = False
+                )
                 df = None
             _dataframes[stationID] = df
     dataframes = _dataframes
@@ -216,21 +230,29 @@ def sync(
             workers = workers,
             check_existing = True,
             force = True,
-            debug = debug
+            debug = debug,
+            **kw
         )[0] if df is not None else False
         success_dict[stationID] = success
 
     succeeded, failed = 0, 0
     for stationID, success in success_dict.items():
         if not success:
-            warn(f"Failed to sync from station '{stationID}' ({stations[stationID]['name']})", stack=False)
+            warn(
+                f"Failed to sync from station '{stationID}' ({stations[stationID]['name']})",
+                stack = False
+            )
             failed += 1
         else:
             succeeded += 1
 
     return (succeeded > 0), f"Synced from {succeeded + failed} stations, {failed} failed."
 
-def do_fetch(stationID : str, info : dict, pipe : 'meerschaum.Pipe') -> Tuple[str, Optional[pandas.DataFrame]]:
+def do_fetch(
+        stationID : str,
+        info : dict,
+        pipe : 'meerschaum.Pipe'
+    ) -> Tuple[str, Optional[Dict[str, List[Any]]]]:
     """
     Wrapper for fetch_station_data (below)
     """
@@ -248,7 +270,7 @@ def fetch_station_data(
         stationID : str,
         info : dict,
         pipe : meerschaum.Pipe
-    ) -> Optional[pandas.DataFrame]:
+    ) -> Optional[Dict[str, List[Any]]]:
     """
     Fetch JSON for a given stationID from NOAA and parse into a dataframe
     """
@@ -270,8 +292,17 @@ def fetch_station_data(
         start = None
 
     ### fetch JSON from NOAA since the start time (sync_time for this stationID)
-    if start: print(f"Fetching data newer than {start} for station '{stationID}' ({info['name']})...", flush=True)
-    else: print(f"Fetching all possible data for station '{stationID}' ({info['name']})...", flush=True)
+    if start:
+        print(
+            f"Fetching data newer than {start} for station '{stationID}' ({info['name']})...",
+            flush = True
+        )
+    else:
+        print(
+            f"Fetching all possible data for station '{stationID}' ({info['name']})...",
+            flush = True
+        )
+        
     url = f"https://api.weather.gov/stations/{stationID}/observations/"
     response = None
     try:
@@ -287,32 +318,46 @@ def fetch_station_data(
     ### build a dictionary from the JSON response (flattens JSON)
     d = dict()
     if 'features' not in data:
-        warn(f"Failed to fetch data for station '{stationID}' ({info['name']}):\n" + str(data), stack=False)
+        warn(
+            f"Failed to fetch data for station '{stationID}' ({info['name']}):\n" + str(data),
+            stack = False
+        )
         return None
+
     for record in data['features']:
         properties = record['properties']
 
-        if 'location' not in d: d['location'] = []
+        if 'location' not in d:
+            d['location'] = []
         d['location'].append(info['name'])
 
-        if 'geometry' not in d: d['geometry'] = []
+        if 'geometry' not in d:
+            d['geometry'] = []
         geo = None
-        if 'geometry' in info: geo = json.dumps(info['geometry'])
+        if 'geometry' in info:
+            geo = json.dumps(info['geometry'])
         d['geometry'].append(geo)
 
         for col, v in properties.items():
             ### Specific to this API; filter out features we don't want.
-            if not v: continue
-            ### At this point, the timestamp is a string. It will get casted below in `parse_df_datetimes`.
-            if col == 'timestamp': val = v
-            ### We could just use the stationID provided, but it's given in the JSON so we might as well use it.
+            if not v:
+                continue
+            ### At this point, the timestamp is a string.
+            ### It will get casted below in `parse_df_datetimes`.
+            if col == 'timestamp':
+                val = v
+            ### We could just use the stationID provided, but it's given in the JSON
+            ### so we might as well use it.
             elif col == 'station': val = v.split('/')[-1]
 
             ### Skip features that don't contain a simple 'value' key.
-            ### NOTE: this will need to be tweaked if we want more information that doesn't apply here.
-            elif not isinstance(v, dict): continue
-            elif 'value' not in v: continue
-            else: val = v['value']
+            ### NOTE: this will need to be tweaked if we want more information.
+            elif not isinstance(v, dict):
+                continue
+            elif 'value' not in v:
+                continue
+            else:
+                val = v['value']
 
             ### If possible, append units to column name.
             if isinstance(v, dict):
@@ -321,7 +366,8 @@ def fetch_station_data(
 
             ### Grow the lists in the dictionary.
             ### E.g. { 'col1' : [ 1, 2, 3 ], 'col2' : [ 4, 5, 6 ] }
-            if col not in d: d[col] = []
+            if col not in d:
+                d[col] = []
             d[col].append(val)
 
     ### Normalize the lengths.
