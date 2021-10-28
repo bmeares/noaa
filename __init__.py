@@ -8,27 +8,27 @@ Example script for syncing NOAA weather data
 from __future__ import annotations
 from meerschaum.utils.typing import SuccessTuple, Dict, List, Any, Optional
 
-__version__ = '1.2.2'
+__version__ = '1.2.4'
 
 required = [
-    'requests',
+    'requests', 'pytz',
 ]
 
-def get_stations(
-        pipe : 'meerschaum.Pipe',
-        debug : bool = False
-    ) -> dict:
-    if 'noaa' not in pipe.parameters:
-        pipe.parameters['noaa'] = dict()
-    if 'stations' not in pipe.parameters['noaa']:
-        pipe.parameters['noaa']['stations'] = dict()
-    if pipe.parameters['noaa']['stations'] is None:
-        pipe.parameters['noaa']['stations'] = dict()
+def register(pipe: 'meerschaum.Pipe') -> Dict[str, Any]:
+    """
+    Prompt the user for stations when registering new pipes.
+    """
+    stations = ask_for_stations(pipe)
+    return {
+        'columns': {'datetime': 'timestamp', 'id': 'station',},
+        'noaa': {'stations': stations,},
+    }
 
-    ### Return if we've already fetched stations.
-    if len(pipe.parameters['noaa']['stations']) > 0:
-        return pipe.parameters['noaa']['stations']
 
+def ask_for_stations(pipe, debug: bool = False) -> Dict[str, Any]:
+    """
+    Prompt the user for stations and return a dictionary.
+    """
     import requests, json, re
     from meerschaum.utils.warnings import warn, info
     from meerschaum.utils.prompt import yes_no, prompt
@@ -40,8 +40,6 @@ def get_stations(
 
     To fetch all stations from a state, enter the state abbreviation
     (e.g. 'GA' for Georgia).
-
-    NOTE: This will be slow! In the future, run with --async to sync more quickly.
     """
     info(instructions)
 
@@ -82,11 +80,18 @@ def get_stations(
     if not yes_no(f"Would you like to register the above stations to pipe '{pipe}'?"):
         print("Resetting stations and starting over...")
         pipe.parameters['noaa']['stations'] = dict()
-        return get_stations(pipe, debug=debug)
+        return ask_for_stations(pipe, debug=debug)
 
-    pipe.parameters['noaa']['stations'] = stations
-    pipe.edit(interactive=False, debug=debug)
     return stations
+
+def get_stations(
+        pipe: 'meerschaum.Pipe',
+        debug: bool = False
+    ) -> Dict[str, Any]:
+    try:
+        return pipe.parameters['noaa']['stations']
+    except Exception as e:
+        return None
 
 def get_state_stations(
         state_abbrev : str,
@@ -120,10 +125,10 @@ def get_state_stations(
     return stations
 
 def sync(
-        pipe : 'meerschaum.Pipe',
-        debug : bool = False,
-        blocking : bool = True,
-        workers : Optional[int] = None,
+        pipe: 'meerschaum.Pipe',
+        debug: bool = False,
+        blocking: bool = True,
+        workers: Optional[int] = None,
         **kw
     ) -> SuccessTuple:
     """
