@@ -6,9 +6,9 @@ Example script for syncing NOAA weather data
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
-__version__ = '1.2.5'
+__version__ = '1.2.6'
 
 required = [
     'requests', 'pytz',
@@ -43,7 +43,7 @@ def ask_for_stations(pipe, debug: bool = False) -> Dict[str, Any]:
     """
     info(instructions)
 
-    stations = dict()
+    stations = {}
 
     while True:
         stationID = prompt("Enter station ID or state abbreviation, empty to stop: ", icon=False)
@@ -83,6 +83,7 @@ def ask_for_stations(pipe, debug: bool = False) -> Dict[str, Any]:
         return ask_for_stations(pipe, debug=debug)
 
     return stations
+
 
 def get_stations(
         pipe: 'meerschaum.Pipe',
@@ -124,11 +125,13 @@ def get_state_stations(
         stations[stationID]['geometry'] = geo
     return stations
 
+
 def sync(
         pipe: 'meerschaum.Pipe',
         debug: bool = False,
         blocking: bool = True,
         workers: Optional[int] = None,
+        begin: Optional['datetime.datetime'] = None,
         **kw
     ) -> Tuple[bool, str]:
     """
@@ -160,7 +163,7 @@ def sync(
     except Exception as e:
         print(e)
         pool = None
-    args = [(stationID, info, pipe) for stationID, info in stations.items()]
+    args = [(stationID, info, pipe, begin) for stationID, info in stations.items()]
     dataframes = (
         dict(pool.starmap(do_fetch, args)) if pool is not None
         else dict([do_fetch(*a) for a in args])
@@ -172,10 +175,10 @@ def sync(
     ### only keep the common columns (skipping empty dataframes)
     common_cols = None
     for stationID, df in dataframes.items():
-        if df is None: continue
-        #  print(df)
-        if len(df.columns) == 0: continue
-        #  df.rename(columns=(lambda x : x.lstrip().rstrip()), inplace=True)
+        if df is None:
+            continue
+        if len(df.columns) == 0:
+            continue
         if common_cols is None:
             common_cols = list(set(df.columns))
             continue
@@ -184,7 +187,8 @@ def sync(
         except Exception as e:
             warn(str(e))
     ### Make empty set in case all dataframes are empty.
-    if common_cols is None: common_cols = list()
+    if common_cols is None:
+        common_cols = []
     ### Pandas needs the columns to be in the same order, so sort the columns.
     common_cols.sort()
 
@@ -193,7 +197,7 @@ def sync(
     float_cols = sorted(list(set(common_cols) - set(non_float_cols)))
 
     ### Cast the value columns to floats to avoid integers.
-    _dataframes = dict()
+    _dataframes = {}
     for stationID, df in dataframes.items():
         if df is not None:
             try:
@@ -248,17 +252,19 @@ def sync(
 
     return (succeeded > 0), f"Synced from {succeeded + failed} stations, {failed} failed."
 
+
 def do_fetch(
-        stationID : str,
-        info : dict,
-        pipe : 'meerschaum.Pipe'
+        stationID: str,
+        info: Dict[str, Any],
+        pipe: 'meerschaum.Pipe',
+        begin: Optional['datetime.datetime'] = None,
     ) -> Tuple[str, Optional[Dict[str, List[Any]]]]:
     """
     Wrapper for fetch_station_data (below)
     """
     from meerschaum.utils.warnings import warn
     try:
-        df = fetch_station_data(stationID, info, pipe)
+        df = fetch_station_data(stationID, info, pipe, begin=begin)
     except Exception as e:
         msg = str(e)
         warn(f"Failed to sync station '{stationID}' ({info['name']}). Error:\n{msg}")
@@ -266,10 +272,12 @@ def do_fetch(
 
     return stationID, df
 
+
 def fetch_station_data(
-        stationID : str,
-        info : dict,
-        pipe : meerschaum.Pipe
+        stationID: str,
+        info: Dict[str, Any],
+        pipe: meerschaum.Pipe,
+        begin: Optional['datetime.datetime'] = None,
     ) -> Optional[Dict[str, List[Any]]]:
     """
     Fetch JSON for a given stationID from NOAA and parse into a dataframe
@@ -281,11 +289,10 @@ def fetch_station_data(
     pd = import_pandas()
     ### Get the latest sync time for this station so we don't request duplicate data.
     try:
-        start = (
-            pipe.get_sync_time(
-                { "station" : stationID }
-            ) - datetime.timedelta(hours=24)
-        ).replace(
+        sync_time = (begin or (
+            pipe.get_sync_time(params={'station': stationID})
+        )) - datetime.timedelta(hours=24)
+        start = sync_time.replace(
             tzinfo = pytz.timezone('UTC')
         ).isoformat()
     except Exception as e:
@@ -316,7 +323,7 @@ def fetch_station_data(
     print(f"Done fetching data for station '{stationID}' ({info['name']}).", flush=True)
 
     ### build a dictionary from the JSON response (flattens JSON)
-    d = dict()
+    d = {}
     if 'features' not in data:
         warn(
             f"Failed to fetch data for station '{stationID}' ({info['name']}):\n" + str(data),
@@ -371,7 +378,7 @@ def fetch_station_data(
             d[col].append(val)
 
     ### Normalize the lengths.
-    klens, lens = dict(), dict()
+    klens, lens = {}, {}
     for k, v in d.items():
         klens[k] = len(v)
     for k, l in klens.items():
