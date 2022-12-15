@@ -8,21 +8,67 @@ Example script for syncing NOAA weather data
 from __future__ import annotations
 from typing import Dict, List, Any, Optional, Tuple
 
-__version__ = '1.2.6'
+__version__ = '1.3.0'
 
 required = [
     'requests', 'pytz',
 ]
 
+STATIONS_BASE_URL = "https://api.weather.gov/stations"
+
 def register(pipe: 'meerschaum.Pipe') -> Dict[str, Any]:
     """
     Prompt the user for stations when registering new pipes.
     """
-    stations = ask_for_stations(pipe)
+    stations_dict = pipe.parameters.get('noaa', {}).get('stations', {})
+    if isinstance(stations_dict, list):
+        stations_dict = {stationID: {} for stationID in stations_dict}
+
+    if stations_dict:
+        for stationID, station_info in {k: v for k, v in stations_dict.items()}.items():
+            if 'name' not in station_info:
+                stations_dict[stationID] = get_station_info(stationID)
+    else:
+        stations_dict = ask_for_stations(pipe)
+
     return {
         'columns': {'datetime': 'timestamp', 'id': 'station',},
-        'noaa': {'stations': stations,},
+        'noaa': {'stations': stations_dict,},
     }
+
+
+def get_station_info(stationID: str) -> Dict[str, Any]:
+    """
+    Fetch the metadata for a station.
+    """
+    from meerschaum.utils.warnings import warn
+    import requests
+    station_info: Dict[str, Any] = {}
+    url = STATIONS_BASE_URL + "/" + stationID
+    response = requests.get(url)
+    if not response:
+        warn(
+            f"Unable to get information for station '{stationID}':\n{response.text}",
+            stack = False,
+        )
+        return station_info
+
+    info = response.json()
+
+    try:
+        geo = info['geometry']
+    except Exception as e:
+        geo = None
+    try:
+        name = info['properties']['name'].rstrip()
+    except Exception as e:
+        warn(f"Unable to fetch the name for station '{stationID}'.", stack=False)
+        return station_info
+
+    station_info['name'] = name
+    if geo is not None:
+        station_info['geometry'] = geo
+    return station_info
 
 
 def ask_for_stations(pipe, debug: bool = False) -> Dict[str, Any]:
@@ -47,7 +93,9 @@ def ask_for_stations(pipe, debug: bool = False) -> Dict[str, Any]:
 
     while True:
         stationID = prompt("Enter station ID or state abbreviation, empty to stop: ", icon=False)
-        if stationID == '': break
+        if stationID == '':
+            break
+
         if len(stationID) == 2:
             state_abbrev = stationID
             if yes_no(
@@ -57,8 +105,17 @@ def ask_for_stations(pipe, debug: bool = False) -> Dict[str, Any]:
                 stations = get_state_stations(state_abbrev)
                 break
 
-        url = f"https://api.weather.gov/stations/{stationID}"
-        info = json.loads(requests.get(url).text)
+        url = STATIONS_BASE_URL + "/" + stationID
+        response = requests.get(url)
+        if not response:
+            warn(
+                f"Unable to get information for station '{stationID}':\n{response.text}",
+                stack = False,
+            )
+            continue
+
+        info = response.json()
+
         try:
             geo = info['geometry']
         except:
@@ -72,27 +129,47 @@ def ask_for_stations(pipe, debug: bool = False) -> Dict[str, Any]:
         if not yes_no(f"Is '{name}' a good label for station '{stationID}'?"):
             name = prompt(f"New label for station '{stationID}': ", icon=False)
 
-        stations[stationID] = dict()
+        stations[stationID] = {}
         stations[stationID]['name'] = name
-        if geo is not None: stations[stationID]['geometry'] = geo
+        if geo is not None:
+            stations[stationID]['geometry'] = geo
 
     pprint(stations)
     if not yes_no(f"Would you like to register the above stations to pipe '{pipe}'?"):
         print("Resetting stations and starting over...")
-        pipe.parameters['noaa']['stations'] = dict()
+        pipe.parameters['noaa']['stations'] = {}
         return ask_for_stations(pipe, debug=debug)
 
     return stations
 
 
 def get_stations(
-        pipe: 'meerschaum.Pipe',
+        pipe: 'mrsm.Pipe',
         debug: bool = False
     ) -> Dict[str, Any]:
+    """
+    Return the stations dictionary.
+    """
+    edit = False
+    stations_dict = pipe.parameters.get('noaa', {}).get('stations', {})
+    if isinstance(stations_dict, list):
+        stations_dict = {stationID: {} for stationID in stations_dict}
+
+    for stationID, station_info in {k: v for k, v in stations_dict.items()}.items():
+        if 'name' not in station_info:
+            stations_dict[stationID] = get_station_info(stationID)
+            edit = True
+
+
+    if edit:
+        pipe.parameters['noaa']['stations'] = stations_dict
+        pipe.edit(debug=debug)
+
     try:
         return pipe.parameters['noaa']['stations']
     except Exception as e:
         return None
+
 
 def get_state_stations(
         state_abbrev: str,
