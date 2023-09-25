@@ -12,7 +12,7 @@ import meerschaum as mrsm
 from ._register import register
 from ._stations import get_stations, get_station_info, fetch_station_data
 
-__version__ = '1.4.0'
+__version__ = '1.4.1'
 required = ['requests', 'pytz',]
 
 def fetch(

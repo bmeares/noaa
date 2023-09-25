@@ -253,7 +253,7 @@ def fetch_station_data(
                 col += " (" + v['unitCode'].replace('wmoUnit:', '') + ")"
 
             if col == 'cloudLayers' and val is None:
-                val = {}
+                val = []
 
             ### Grow the lists in the dictionary.
             ### E.g. { 'col1' : [ 1, 2, 3 ], 'col2' : [ 4, 5, 6 ] }
